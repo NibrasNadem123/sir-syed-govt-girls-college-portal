@@ -1242,6 +1242,9 @@ html.dark .site-nav.mopen .mnav-t i{background:#fff}
 /* ===== Online saving indicator ===== */
 html.saving body::after{content:"Saving…";position:fixed;left:16px;bottom:16px;z-index:90;background:#1B4332;color:#fff;font-weight:800;font-size:13px;padding:7px 14px;border-radius:20px;box-shadow:0 6px 18px rgba(0,0,0,.2)}
 button:disabled{opacity:.7;cursor:wait}
+
+.mk-lock{display:flex;align-items:center;gap:6px;min-height:42px;padding:8px 12px;border:1.5px solid #DCE6E0;border-radius:10px;background:#F4F7F5;font-weight:800;color:#1B4332}.mk-lock span{font-weight:600;color:#4B5563;font-size:13px}
+html.dark .mk-lock{background:#1E2B24;border-color:#2E3F36;color:#8FD3AE}html.dark .mk-lock span{color:#AEBBB4}
 </style>
 </head>
 <body>
@@ -1353,8 +1356,8 @@ async function loadAll(){
   profs.forEach(p=>{if(p.status!=='approved'){if(p.status==='pending')D.pending.push(p);return}
    D.users[p.login_id]={name:p.name,role:p.role,cls:p.cls,dept:p.dept,subject:p.subject,designation:p.designation,qual:p.qual,ext:p.ext,hod:!!p.hod};
    D.profiles[p.login_id]=Object.fromEntries(PROF_KEYS.map(k=>[k,p[k]||'']))});
-  const St=r=>D.students[r]||(D.students[r]={results:{},att:[],books:[]});
-  results.forEach(r=>{St(r.login_id).results[r.subject]=+r.marks});
+  const St=r=>D.students[r]||(D.students[r]={tests:{},att:[],books:[]});
+  results.forEach(r=>{const t=St(r.login_id).tests;const a=r.assessment||'Final Exam';(t[a]=t[a]||{})[r.subject]={m:+r.marks,t:+(r.total||100)}});
   att.forEach(a=>St(a.login_id).att.push({date:a.date,type:a.type}));
   issues.forEach(b=>St(b.login_id).books.push({id:b.book_id,due:+b.due}));
   regs.forEach(r=>{const e=D.events.find(x=>x.id===r.event_id);if(e)e.regs.push(r.login_id)});
@@ -1378,7 +1381,7 @@ function flat(D){const o={notices:[],events:[],regs:[],asg:[],subs:[],tt:[],book
  (D.books||[]).forEach(b=>o.books.push({id:b.id,title:b.title,author:N(b.author),copies:b.copies}));
  (D.inquiries||[]).forEach(i=>o.inq.push({id:i.id,name:i.name,father:N(i.father),phone:N(i.phone),email:N(i.email),program:N(i.program),msg:N(i.msg),status:i.status,at:i.at}));
  (D.resources||[]).forEach(r=>o.res.push({id:r.id,title:r.title,type:N(r.type),subject:N(r.subject),cls:N(r.cls),year:N(r.year),file_name:N(r.fileName),size:r.size,by_id:N(r.by),by_name:N(r.byName),at:r.at,_data:r.data}));
- Object.entries(D.students||{}).forEach(([r,s])=>{Object.entries(s.results||{}).forEach(([sub,m])=>o.results.push({login_id:r,subject:sub,marks:+m}));
+ Object.entries(D.students||{}).forEach(([r,s])=>{Object.entries(s.tests||{}).forEach(([a,subs])=>Object.entries(subs||{}).forEach(([sub,v])=>o.results.push({login_id:r,assessment:a,subject:sub,marks:+v.m,total:+v.t})));
   (s.att||[]).forEach(a=>o.att.push({login_id:r,date:a.date,type:a.type}));(s.books||[]).forEach(b=>o.issues.push({book_id:b.id,login_id:r,due:b.due}))});
  Object.entries(D.users||{}).forEach(([id,u])=>{const p=(D.profiles||{})[id]||{};const row={login_id:id};USER_KEYS.forEach(k=>row[k]=k==='hod'?!!u[k]:N(u[k]));PROF_KEYS.forEach(k=>row[k]=N(p[k]));o.users.push(row)});
  return o}
@@ -1392,7 +1395,7 @@ function planSync(prevD,curD){const a=flat(prevD),b=flat(curD),ops=[];
  simple('tt','timetable',x=>x.id,['id']);simple('books','books',x=>x.id,['id']);simple('inq','inquiries',x=>x.id,['id']);simple('res','resources',x=>x.id,['id']);
  simple('regs','event_regs',x=>x.event_id+'|'+x.login_id,['event_id','login_id']);
  simple('subs','submissions',x=>x.assignment_id+'|'+x.login_id,['assignment_id','login_id']);
- simple('results','results',x=>x.login_id+'|'+x.subject,['login_id','subject']);
+ simple('results','results',x=>x.login_id+'|'+x.assessment+'|'+x.subject,['login_id','assessment','subject']);
  simple('att','attendance',x=>x.login_id+'|'+x.date,['login_id','date']);
  simple('issues','book_issues',x=>x.book_id+'|'+x.login_id,['book_id','login_id']);
  // accounts: only update existing ones (new accounts are created through sign-up)
@@ -1480,10 +1483,14 @@ let resetArmed=false;
 let me=null,role=null,page=(()=>{try{const h=location.hash.slice(1);return ['about','programs','faculty','admissions','exams','life','resources','contact'].includes(h)?h:'home'}catch(e){return 'home'}})(),view='dashboard',loginRole='student',loginMode='login';
 let ui={resF:{type:'All',subj:'All'},resFile:null,dept:null,facOpen:null,day:DAYS[Math.min(Math.max(new Date().getDay()-1,0),4)],asF:'pending',bookQ:'',noticeF:'ALL',attCls:null,attDate:iso(),mkCls:null,mkSub:null,stuQ:'',stuCls:'ALL',openAs:null,inqF:'ALL'};
 const U=()=>DB.users[me];
-const S=r=>DB.students[r]||(DB.students[r]={results:{},att:[],books:[]});
+const ASSESS=['Class Test 1','Class Test 2','Class Test 3','Mid-Term Exam','Final Exam'];
+const S=r=>{const s=DB.students[r]||(DB.students[r]={tests:{},att:[],books:[]});if(!s.tests){s.tests={};if(s.results&&Object.keys(s.results).length)s.tests['Final Exam']=Object.fromEntries(Object.entries(s.results).map(([k,v])=>[k,{m:+v,t:100}]))}if('results' in s)delete s.results;return s};
+const pctOf=x=>x&&x.t?Math.round(x.m/x.t*1000)/10:0;
+const assessOf=r=>{const t=S(r).tests;const ks=Object.keys(t).filter(a=>Object.keys(t[a]||{}).length);return ks.sort((x,y)=>{const i=ASSESS.indexOf(x),j=ASSESS.indexOf(y);return (i<0?99:i)-(j<0?99:j)})};
+const latestAssess=r=>{const l=assessOf(r);return l.length?l[l.length-1]:null};
 const P=id=>DB.profiles[id]||(DB.profiles[id]={phone:'',email:'',address:'',father:'',program:'',photo:''});
 const studentsOf=cls=>Object.entries(DB.users).filter(([r,u])=>u.role==='student'&&(cls==='ALL'||!cls||u.cls===cls)).map(([r,u])=>({roll:r,...u})).sort((a,b)=>a.roll.localeCompare(b.roll));
-function resCalc(r){const res=S(r).results;const ks=Object.keys(res);const tot=ks.reduce((a,k)=>a+(+res[k]||0),0);const pct=ks.length?Math.round(tot/(ks.length*100)*1000)/10:0;return{n:ks.length,tot,pct,g:grade(pct)}}
+function resCalc(r,a){a=a||latestAssess(r);const res=(a&&S(r).tests[a])||{};const ks=Object.keys(res);const tot=ks.reduce((x,k)=>x+(+res[k].m||0),0);const max=ks.reduce((x,k)=>x+(+res[k].t||0),0);const pct=max?Math.round(tot/max*1000)/10:0;return{a,res,n:ks.length,tot,max,pct,g:grade(pct)}}
 function attCalc(r){const a=S(r).att;const c={present:0,absent:0,leave:0};a.forEach(x=>c[x.type]++);const total=a.length;return{...c,total,pct:total?Math.round(c.present/total*1000)/10:0}}
 const myAssign=r=>DB.assignments.filter(a=>a.cls===DB.users[r].cls);
 const pendingOf=r=>myAssign(r).filter(a=>!a.subs[r]).length;
@@ -1827,19 +1834,20 @@ function sDashboard(){const r=resCalc(me),a=attCalc(me),t=DB.timetable[ui.day]||
  return shell(`<div class="stack"><div class="banner">📢 ${esc(n[0]?n[0].title:'Welcome to the College Portal')}</div><div class="pdf-row"><button class="btn green sm" data-act="pdf" data-v="result">📄 Result Card (PDF)</button><button class="btn sm pdf-alt" data-act="pdf" data-v="admit">🪪 Admit Card (PDF)</button></div>
  <div class="grid g4">
   <div class="card stat clickable" data-act="go" data-v="attendance"><div class="lab">✅ Attendance</div><div class="val" style="color:${a.pct>=75?'var(--ok)':'var(--red)'}">${a.pct}%</div><div class="s">${a.pct>=75?'Above 75% required':'Below 75%!'}</div></div>
-  <div class="card stat clickable" data-act="go" data-v="results"><div class="lab">📊 Overall Result</div><div class="val" style="color:var(--g)">${r.pct}%</div><div class="s">Grade ${r.g}</div></div>
+  <div class="card stat clickable" data-act="go" data-v="results"><div class="lab">📊 Overall Result</div><div class="val" style="color:var(--g)">${r.pct}%</div><div class="s">Grade ${r.g}${r.a?' • '+esc(r.a):''}</div></div>
   <div class="card stat clickable" data-act="go" data-v="assignments"><div class="lab">📝 Pending Tasks</div><div class="val" style="color:${pend?'var(--red)':'var(--ok)'}">${pend}</div><div class="s">${pend?'Upload before the due date':'All done! 🎉'}</div></div>
   <div class="card stat clickable" data-act="go" data-v="library"><div class="lab">📚 Books Issued</div><div class="val" style="color:var(--amber)">${books}</div><div class="s">From the library</div></div></div>
- <div class="grid g2"><div class="card"><h3>📊 Attendance Overview</h3>${attChart(a)}</div><div class="card"><h3>📈 Subject-wise Marks</h3>${resChart(S(me).results)}</div></div>
+ <div class="grid g2"><div class="card"><h3>📊 Attendance Overview</h3>${attChart(a)}</div><div class="card"><h3>📈 Subject-wise Marks${r.a?` <span class="muted" style="font-size:14px;font-family:Nunito,sans-serif">• ${esc(r.a)}</span>`:''}</h3>${resChart(r.res)}</div></div>
  <div class="grid g2"><div class="card"><h3>📅 ${ui.day}'s Classes</h3>${t.length?t.slice().sort((a,b)=>a.t.localeCompare(b.t)).map(c=>`<div class="row"><b style="color:var(--g);width:58px">${esc(c.t)}</b><span class="grow">${esc(c.s)}</span><span class="muted">${esc(c.r)}</span></div>`).join(''):'<div class="empty">No classes</div>'}</div>
  <div class="card"><h3 class="ih">${HI('h-mega')}Latest Announcements</h3>${n.map(x=>`<div class="row"><span class="pill" style="background:${TAGS[x.tag]||'var(--g)'}">${esc(x.tag)}</span><span class="grow">${esc(x.title)}</span></div>`).join('')}</div></div></div>`,`Assalam-o-Alaikum, ${first(U().name)} 👋`,`${esc(U().cls)} • Roll No. ${esc(me)}`)}
 
-function sResults(){const res=S(me).results,c=resCalc(me);const ks=Object.keys(res);
- return shell(`<div class="pdf-row"><button class="btn green sm" data-act="pdf" data-v="result">📄 Download Result Card (PDF)</button><button class="btn sm pdf-alt" data-act="pdf" data-v="admit">🪪 Download Admit Card (PDF)</button></div><div class="grid g3" style="margin-bottom:18px"><div class="card stat"><div class="lab">Total Marks</div><div class="val" style="color:var(--g)">${c.tot} / ${c.n*100}</div></div><div class="card stat"><div class="lab">Percentage</div><div class="val" style="color:var(--blue)">${c.pct}%</div></div><div class="card stat"><div class="lab">Grade</div><div class="val" style="color:var(--amber)">${c.g}</div></div></div>
+function sResults(){const avail=assessOf(me);if(!avail.includes(ui.resA))ui.resA=avail.length?avail[avail.length-1]:null;const c=resCalc(me,ui.resA);const res=c.res;const ks=Object.keys(res);
+ const tabs=`<div class="bar-row as-tabs">${avail.map(x=>`<button class="btn sm ${x===c.a?'green':'grey'}" data-act="resa" data-v="${esc(x)}">${esc(x)}</button>`).join('')}</div>`;
+ return shell(`${tabs}${c.a?`<div class="pdf-row"><button class="btn green sm" data-act="pdf" data-v="result">📄 Download Result Card (PDF)</button><button class="btn sm pdf-alt" data-act="pdf" data-v="admit">🪪 Download Admit Card (PDF)</button></div>
+ <div class="grid g3" style="margin-bottom:18px"><div class="card stat"><div class="lab">Total Marks</div><div class="val" style="color:var(--g)">${c.tot} / ${c.max}</div></div><div class="card stat"><div class="lab">Percentage</div><div class="val" style="color:var(--blue)">${c.pct}%</div></div><div class="card stat"><div class="lab">Grade</div><div class="val" style="color:var(--amber)">${c.g}</div></div></div>
  <div class="card" style="margin-bottom:18px"><h3>📈 Marks by Subject</h3>${resChart(res)}</div>
- <div class="tbl"><table><tr><th>Subject</th><th>Marks</th><th>Grade</th><th>Remarks</th></tr>${ks.length?ks.map(k=>`<tr><td>${esc(k)}</td><td>${res[k]} / 100</td><td style="font-weight:900;color:var(--g)">${grade(res[k])}</td><td class="muted">${res[k]>=85?'Excellent':res[k]>=70?'Good':res[k]>=50?'Needs more practice':'Please meet your teacher'}</td></tr>`).join(''):'<tr><td colspan="4" class="empty">No marks entered yet.</td></tr>'}</table></div>
- <p class="muted" style="margin-top:12px">Marks are entered by your teachers.</p>`,'Results','First Term')}
-
+ <div class="tbl"><table><tr><th>Subject</th><th>Obtained</th><th>Total</th><th>%</th><th>Grade</th><th>Remarks</th></tr>${ks.map(k=>{const v=res[k],pc=pctOf(v);return `<tr><td>${esc(k)}</td><td><b>${v.m}</b></td><td>${v.t}</td><td>${pc}%</td><td style="font-weight:900;color:var(--g)">${grade(pc)}</td><td class="muted">${pc>=85?'Excellent':pc>=70?'Good':pc>=50?'Needs more practice':'Please meet your teacher'}</td></tr>`}).join('')}</table></div>`:'<div class="card empty">No marks have been entered yet. Your teachers will add marks after each test and exam.</div>'}
+ <p class="muted" style="margin-top:12px">Marks are entered by your subject teachers after each class test and exam.</p>`,'Results',c.a||'Tests and exams')}
 function sAttendance(){const a=attCalc(me);const log=S(me).att.slice().sort((x,y)=>y.date.localeCompare(x.date)).slice(0,10);const col=a.pct>=75?'var(--g)':'var(--red)';
  return shell(`<div class="grid g2"><div class="card"><div class="muted">Attendance this term</div><div class="big" style="color:${col}">${a.pct}%</div><div class="bar"><i style="width:${a.pct}%;background:${col}"></i></div><p style="font-weight:800;color:${a.pct>=75?'var(--ok)':'var(--red)'}">${a.pct>=75?'✅ Above the required 75%':'⚠️ Below 75%: you may not be allowed in exams'}</p>
   <div class="grid g3" style="margin-top:14px;gap:10px"><div><div class="stat val" style="font-size:28px;font-weight:900;color:var(--ok)">${a.present}</div><div class="muted">Present</div></div><div><div style="font-size:28px;font-weight:900;color:var(--red)">${a.absent}</div><div class="muted">Absent</div></div><div><div style="font-size:28px;font-weight:900;color:var(--amber)">${a.leave}</div><div class="muted">Leave</div></div></div></div>
@@ -1870,16 +1878,20 @@ function tDashboard(){const u=U();const studs=studentsOf(u.cls);const marked=stu
  <div class="grid g2"><div class="card"><h3>📅 My ${ui.day} Classes</h3>${tt.length?tt.map(c=>`<div class="row"><b style="color:var(--g);width:58px">${esc(c.t)}</b><span class="grow">${esc(c.s)}</span><span class="muted">${esc(c.r)}</span></div>`).join(''):'<div class="empty">No classes today.</div>'}</div>
  <div class="card"><h3>🎓 Students (${esc(u.cls)})</h3>${studs.map(s=>{const a=attCalc(s.roll);return `<div class="row"><span class="grow">${esc(s.name)}<div class="muted">${esc(s.roll)}</div></div><span class="pill" style="background:${a.pct>=75?'var(--ok)':'var(--red)'}">${a.pct}%</span></div>`}).join('')}</div></div></div>`,`Assalam-o-Alaikum, ${first(U().name)} 👋`,'Teacher Portal')}
 
-function tMarkAtt(){const cls=ui.attCls||(role==='teacher'?U().cls:CLASSES[0]);ui.attCls=cls;const studs=studentsOf(cls);const d=ui.attDate;
- return shell(`<div class="card" style="margin-bottom:18px"><div class="form-row"><div><label>Class</label><select id="attcls">${CLASSES.map(c=>`<option ${c===cls?'selected':''}>${c}</option>`).join('')}</select></div><div><label>Date</label><input type="date" id="attdate" value="${d}" max="${iso()}"></div><button class="btn grey" data-act="allp">Mark all Present</button></div></div>
+function tMarkAtt(){const lockC=false;const cls=ui.attCls||(role==='teacher'?U().cls:CLASSES[0])||CLASSES[0];ui.attCls=cls;const studs=studentsOf(cls);const d=ui.attDate;
+ return shell(`<div class="card" style="margin-bottom:18px"><div class="form-row"><div><label>Class</label>${lockC?`<div class="mk-lock">🔒 ${esc(cls)} <span>(your class)</span></div>`:`<select id="attcls">${CLASSES.map(c=>`<option ${c===cls?'selected':''}>${c}</option>`).join('')}</select>`}</div><div><label>Date</label><input type="date" id="attdate" value="${d}" max="${iso()}"></div><button class="btn grey" data-act="allp">Mark all Present</button></div></div>
  <div class="tbl"><table><tr><th>Roll No.</th><th>Name</th><th>Attendance</th><th>Overall</th></tr>${studs.length?studs.map(s=>{const rec=S(s.roll).att.find(a=>a.date===d);const t=rec?rec.type:'';return `<tr><td>${esc(s.roll)}</td><td>${esc(s.name)}</td><td><div class="seg"><button class="p ${t==='present'?'on':''}" data-act="mark" data-v="${s.roll}|present">P</button><button class="a ${t==='absent'?'on':''}" data-act="mark" data-v="${s.roll}|absent">A</button><button class="l ${t==='leave'?'on':''}" data-act="mark" data-v="${s.roll}|leave">L</button></div></td><td>${attCalc(s.roll).pct}%</td></tr>`}).join(''):'<tr><td colspan="4" class="empty">No students in this class.</td></tr>'}</table></div>
- <p class="muted" style="margin-top:12px">P = Present, A = Absent, L = Leave. Changes save automatically.</p>`,'Mark Attendance',`${esc(cls)} • ${fmt(d)}`)}
+ <p class="muted" style="margin-top:12px">P = Present, A = Absent, L = Leave. Changes save automatically.${lockC?' You can mark attendance only for your own class.':''}</p>`,'Mark Attendance',`${esc(cls)} • ${fmt(d)}`)}
 
-function tMarks(){const cls=ui.mkCls||(role==='teacher'?U().cls:CLASSES[0]);const sub=ui.mkSub||(role==='teacher'?U().subject:SUBJECTS[0]);ui.mkCls=cls;ui.mkSub=sub;const studs=studentsOf(cls);
- return shell(`<div class="card" style="margin-bottom:18px"><div class="form-row"><div><label>Class</label><select id="mkcls">${CLASSES.map(c=>`<option ${c===cls?'selected':''}>${c}</option>`).join('')}</select></div><div><label>Subject</label><select id="mksub">${SUBJECTS.map(s=>`<option ${s===sub?'selected':''}>${s}</option>`).join('')}</select></div></div></div>
- <form data-form="marks"><div class="tbl"><table><tr><th>Roll No.</th><th>Name</th><th>Marks (out of 100)</th><th>Grade</th></tr>${studs.length?studs.map(s=>{const m=S(s.roll).results[sub];return `<tr><td>${esc(s.roll)}</td><td>${esc(s.name)}</td><td><input type="number" min="0" max="100" name="${esc(s.roll)}" value="${m??''}" placeholder="—" style="max-width:110px" data-mk></td><td style="font-weight:900;color:var(--g)" data-gr="${esc(s.roll)}">${m!=null?grade(m):'—'}</td></tr>`}).join(''):'<tr><td colspan="4" class="empty">No students in this class.</td></tr>'}</table></div>
- <button class="btn green" style="margin-top:16px">💾 Save Marks</button></form>`,'Enter Marks',`${esc(sub)} • ${esc(cls)}`)}
-
+function tMarks(){const lock=role==='teacher';const mySub=lock?U().subject:null;if(lock&&!mySub)return shell(`<div class="card"><h3>📊 Enter Marks</h3><p>Your subject is not set yet. Please ask the admin to set your subject.</p></div>`,'Enter Marks','');
+ const cls=ui.mkCls||(lock?U().cls:CLASSES[0])||CLASSES[0];const sub=lock?mySub:(ui.mkSub||SUBJECTS[0]);const as=(ui.mkA||'').trim()||ASSESS[0];ui.mkCls=cls;ui.mkSub=sub;ui.mkA=as;const studs=studentsOf(cls);
+ const cur=studs.map(st=>(S(st.roll).tests[as]||{})[sub]).filter(Boolean);const total=cur.length?cur[0].t:(/test|quiz/i.test(as)?25:100);const known=[...new Set([...ASSESS,...studs.flatMap(st=>Object.keys(S(st.roll).tests))])];
+ return shell(`<div class="card" style="margin-bottom:18px"><div class="form-row"><div><label>Class</label><select id="mkcls">${CLASSES.map(c=>`<option ${c===cls?'selected':''}>${c}</option>`).join('')}</select></div>
+  <div><label>Subject</label>${lock?`<div class="mk-lock">🔒 ${esc(sub)} <span>(your subject)</span></div>`:`<select id="mksub">${SUBJECTS.map(s=>`<option ${s===sub?'selected':''}>${s}</option>`).join('')}</select>`}</div>
+  <div><label>Test / Exam name</label><input id="mkass" list="asslist" maxlength="40" value="${esc(as)}" placeholder="e.g. Class Test 1, Chapter 3 Quiz" autocomplete="off"><datalist id="asslist">${known.map(x=>`<option value="${esc(x)}">`).join('')}</datalist></div></div><p class="muted" style="margin-top:10px">Type the name of the test or exam, or pick one from the list.${lock?' You can enter marks only for your own subject.':''}</p></div>
+ <form data-form="marks"><div class="card" style="margin-bottom:14px"><div class="form-row" style="align-items:end"><div><label>Total marks of ${esc(as)}</label><input type="number" name="total" id="mktotal" min="1" max="500" value="${total}" style="max-width:140px"></div><p class="muted" style="margin:0">Example: 20, 25, 50 or 100. Grades are worked out from the percentage.</p></div></div>
+ <div class="tbl"><table><tr><th>Roll No.</th><th>Name</th><th>Marks obtained</th><th>Grade</th></tr>${studs.length?studs.map(st=>{const v=(S(st.roll).tests[as]||{})[sub];return `<tr><td>${esc(st.roll)}</td><td>${esc(st.name)}</td><td><input type="number" min="0" step="0.5" name="m:${esc(st.roll)}" value="${v?v.m:''}" placeholder="—" style="max-width:110px" data-mk="${esc(st.roll)}"> <span class="muted">/ <span class="mk-of">${total}</span></span></td><td style="font-weight:900;color:var(--g)" data-gr="${esc(st.roll)}">${v?grade(pctOf(v)):'—'}</td></tr>`}).join(''):'<tr><td colspan="4" class="empty">No students in this class.</td></tr>'}</table></div>
+ <button class="btn green" style="margin-top:16px">💾 Save Marks</button></form>`,'Enter Marks',`${esc(sub)} • ${esc(cls)} • ${esc(as)}`)}
 function tAssign(){const isA=role==='admin';const mine=DB.assignments.filter(a=>isA||a.by===me).sort((a,b)=>b.due.localeCompare(a.due));const u=U();
  return shell(`<div class="card" style="margin-bottom:18px"><h3>➕ Post a New Assignment</h3><form data-form="newassign"><div class="form-row"><div><label>Class</label><select name="cls">${CLASSES.map(c=>`<option ${c===u.cls?'selected':''}>${c}</option>`).join('')}</select></div><div><label>Subject</label><select name="sub">${SUBJECTS.map(s=>`<option ${s===u.subject?'selected':''}>${s}</option>`).join('')}</select></div><div><label>Due Date</label><input type="date" name="due" min="${iso()}"></div></div><label>Task *</label><input name="title" placeholder="e.g. Draw a diagram of the CPU"><div class="err" id="err"></div><button class="btn green" style="margin-top:8px">Post Assignment</button></form></div>
  ${mine.length?mine.map(a=>{const studs=studentsOf(a.cls);const n=Object.keys(a.subs).length;const open=ui.openAs===a.id;return `<div class="card" style="margin-bottom:14px"><div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap"><div style="flex:1;min-width:200px"><span style="color:var(--g);font-weight:900;font-size:13px">${esc(a.sub)} • ${esc(a.cls)}</span><h3 style="margin:4px 0 2px">${esc(a.title)}</h3><p class="muted">Due ${fmt(a.due)}</p></div><span class="pill" style="background:${n===studs.length&&n?'var(--ok)':'var(--amber)'}">${n}/${studs.length} SUBMITTED</span><button class="btn sm grey" data-act="openas" data-v="${a.id}">${open?'Hide':'View'} submissions</button><button class="btn sm red" data-act="delas" data-v="${a.id}">Delete</button></div>
@@ -1979,9 +1991,9 @@ function pdfFooter(p,signs){const W=p.W,H=p.H;const n=signs.length;const gap=(W-
 function pdfField(p,x,y,label,val,w){p.text(x,y,label,{size:9,color:'#4B5563',bold:true});p.text(x,y+15,val||'-',{size:12,bold:true,color:'#1F2937'});p.line(x,y+21,x+w,y+21,{color:'#DCE6E0',lw:.6})}
 
 async function makeCard(kind){if(role!=='student'||!me)return;toast('Preparing your PDF…');
- const u=U(),pr=P(me),res=S(me).results,c=resCalc(me),a=attCalc(me);const p=pdfDoc(),W=p.W;
+ const u=U(),pr=P(me),c=resCalc(me,assessOf(me).includes(ui.resA)?ui.resA:null),res=c.res,a=attCalc(me);const p=pdfDoc(),W=p.W;
  const [logo,photo]=await Promise.all([imgToJpeg(LOGO,300),imgToJpeg(pr.photo,500)]);
- const term='First Term Examination '+new Date().getFullYear();
+ const term=(c.a||'Examination')+' '+new Date().getFullYear();
  if(kind==='result'){
   pdfHeader(p,logo,'RESULT CARD',term);
   p.rect(38,190,W-76,92,{stroke:'#DCE6E0',lw:1});
@@ -1990,15 +2002,15 @@ async function makeCard(kind){if(role!=='student'||!me)return;toast('Preparing y
   const ks=Object.keys(res);let y=300;const cols=[[54,'SUBJECT'],[250,'TOTAL'],[310,'OBTAINED'],[388,'GRADE'],[440,'REMARKS']];
   p.rect(38,y,W-76,24,{fill:'#1B4332'});cols.forEach(([x,t])=>p.text(x,y+16,t,{size:9.5,bold:true,color:'#FFFFFF'}));y+=24;
   if(!ks.length){p.rect(38,y,W-76,30,{stroke:'#DCE6E0'});p.text(W/2,y+19,'No marks have been entered yet.',{size:10,color:'#4B5563',align:'center'});y+=30}
-  ks.forEach((k,i)=>{const m=+res[k];if(i%2)p.rect(38,y,W-76,24,{fill:'#F4F7F5'});
-   p.text(54,y+16,k,{size:10.5,bold:true});p.text(250,y+16,'100',{size:10.5});p.text(310,y+16,String(m),{size:10.5,bold:true,color:m<33?'#9B2C2C':'#1F2937'});
-   p.text(388,y+16,grade(m),{size:10.5,bold:true,color:'#1B4332'});p.text(440,y+16,m>=85?'Excellent':m>=70?'Good':m>=50?'Satisfactory':m>=33?'Needs practice':'Fail',{size:10,color:'#4B5563'});y+=24});
+  ks.forEach((k,i)=>{const v=res[k],pc=pctOf(v);if(i%2)p.rect(38,y,W-76,24,{fill:'#F4F7F5'});
+   p.text(54,y+16,k,{size:10.5,bold:true});p.text(250,y+16,String(v.t),{size:10.5});p.text(310,y+16,String(v.m),{size:10.5,bold:true,color:pc<33?'#9B2C2C':'#1F2937'});
+   p.text(388,y+16,grade(pc),{size:10.5,bold:true,color:'#1B4332'});p.text(440,y+16,pc>=85?'Excellent':pc>=70?'Good':pc>=50?'Satisfactory':pc>=33?'Needs practice':'Fail',{size:10,color:'#4B5563'});y+=24});
   p.rect(38,300,W-76,y-300,{stroke:'#DCE6E0'});
-  y+=18;const pass=ks.length&&ks.every(k=>+res[k]>=33);
+  y+=18;const pass=ks.length&&ks.every(k=>pctOf(res[k])>=33);
   const box=(x,label,val,col)=>{p.rect(x,y,118,56,{fill:'#F4F7F5',stroke:'#DCE6E0'});p.text(x+59,y+20,label,{size:8.5,bold:true,color:'#4B5563',align:'center'});p.text(x+59,y+44,val,{size:16,bold:true,color:col||'#1B4332',align:'center'})};
-  box(38,'TOTAL MARKS',`${c.tot} / ${c.n*100}`);box(38+132.4,'PERCENTAGE',c.pct+'%');box(38+264.8,'GRADE',c.g,'#B45309');box(38+397.2,'RESULT',ks.length?(pass?'PASS':'FAIL'):'-',pass?'#2D6A4F':'#9B2C2C');
+  box(38,'TOTAL MARKS',`${c.tot} / ${c.max}`);box(38+132.4,'PERCENTAGE',c.pct+'%');box(38+264.8,'GRADE',c.g,'#B45309');box(38+397.2,'RESULT',ks.length?(pass?'PASS':'FAIL'):'-',pass?'#2D6A4F':'#9B2C2C');
   y+=74;p.text(38,y,`Attendance this term: ${a.pct}%  (${a.present} present, ${a.absent} absent, ${a.leave} leave)`,{size:10,bold:true,color:a.pct>=75?'#2D6A4F':'#9B2C2C'});
-  y+=18;p.text(38,y,'Grading: A+ 90-100   A 80-89   B 70-79   C 60-69   D 50-59   F below 50   |   Passing marks: 33 in each subject',{size:8.5,color:'#4B5563'});
+  y+=18;p.text(38,y,'Grading: A+ 90-100   A 80-89   B 70-79   C 60-69   D 50-59   F below 50   |   Pass: 33% in each subject',{size:8.5,color:'#4B5563'});
   pdfFooter(p,['Class Teacher','Controller of Exams','Principal']);
   await saveBlob(p.build(),`Result-Card-${me}.pdf`)}
  else{
@@ -2009,7 +2021,7 @@ async function makeCard(kind){if(role!=='student'||!me)return;toast('Preparing y
   const fw=W-76-130;pdfField(p,38,206,"STUDENT'S NAME",u.name,fw);pdfField(p,38,244,"FATHER'S NAME",pr.father,fw);
   pdfField(p,38,282,'ROLL NO.',me,fw/2-10);pdfField(p,38+fw/2+10,282,'CLASS',u.cls,fw/2-10);
   pdfField(p,38,320,'EXAMINATION CENTRE','Sir Syed Govt. Girls College, Block 1, Nazimabad, Karachi',W-76);
-  let subs=Object.keys(res);if(!subs.length)subs=[...new Set(Object.values(DB.timetable||{}).flat().map(x=>x.s))];
+  let subs=[...new Set(Object.values(S(me).tests).flatMap(o=>Object.keys(o)))];if(!subs.length)subs=[...new Set(Object.values(DB.timetable||{}).flat().map(x=>x.s))];
   let y=362;p.rect(38,y,W-76,24,{fill:'#1B4332'});[[54,'NO.'],[94,'SUBJECT'],[290,'DATE & TIME'],[440,"INVIGILATOR'S SIGN"]].forEach(([x,t])=>p.text(x,y+16,t,{size:9.5,bold:true,color:'#FFFFFF'}));y+=24;
   subs.forEach((k,i)=>{if(i%2)p.rect(38,y,W-76,22,{fill:'#F4F7F5'});p.text(54,y+15,String(i+1),{size:10});p.text(94,y+15,k,{size:10.5,bold:true});p.text(290,y+15,'As per date sheet',{size:10,color:'#4B5563'});y+=22});
   p.rect(38,362,W-76,y-362,{stroke:'#DCE6E0'});
@@ -2075,10 +2087,10 @@ function attChart(a){const parts=[['present','Present',a.present],['leave','Leav
   <div class="ch-stack">${parts.filter(p=>p[2]).map(([k,l,n])=>`<div class="ch-seg ch-${k}" style="flex:${n}" tabindex="0" data-tip="${l}: ${n} day${n>1?'s':''} (${Math.round(n/tot*100)}%)"></div>`).join('')}</div>
   <div class="ch-legend">${parts.map(([k,l,n])=>`<div class="ch-li"><i class="ch-dot ch-${k}"></i><span>${l}</span><b>${n}</b><em>${tot?Math.round(n/tot*100):0}%</em></div>`).join('')}</div>
   <p class="ch-note">${tot} working days this term • 75% attendance is required</p></div>`}
-function resChart(res){const ks=Object.keys(res);if(!ks.length)return '<div class="empty">No marks entered yet.</div>';
- return `<div class="ch-res" role="img" aria-label="Marks by subject: ${ks.map(k=>k+' '+res[k]).join(', ')}">
-  ${ks.map(k=>{const m=+res[k];return `<div class="ch-row" tabindex="0" data-tip="${esc(k)}: ${m} / 100 • Grade ${grade(m)}"><span class="ch-lab">${esc(k)}</span><div class="ch-track"><div class="ch-bar${m<33?' fail':''}" style="width:${Math.max(2,m)}%"></div><i class="ch-pass" style="left:33%"></i></div><b class="ch-val">${m}</b></div>`}).join('')}
-  <div class="ch-axis"><span></span><div><em style="left:0">0</em><em style="left:33%">33 pass</em><em style="left:100%">100</em></div><span></span></div></div>`}
+function resChart(res){const ks=Object.keys(res||{});if(!ks.length)return '<div class="empty">No marks entered yet.</div>';const V=k=>typeof res[k]==='object'?res[k]:{m:+res[k],t:100};
+ return `<div class="ch-res" role="img" aria-label="Marks by subject: ${ks.map(k=>k+' '+V(k).m+' out of '+V(k).t).join(', ')}">
+  ${ks.map(k=>{const v=V(k),pc=pctOf(v);return `<div class="ch-row" tabindex="0" data-tip="${esc(k)}: ${v.m} / ${v.t} (${pc}%) • Grade ${grade(pc)}"><span class="ch-lab">${esc(k)}</span><div class="ch-track"><div class="ch-bar${pc<33?' fail':''}" style="width:${Math.max(2,pc)}%"></div><i class="ch-pass" style="left:33%"></i></div><b class="ch-val">${Math.round(pc)}%</b></div>`}).join('')}
+  <div class="ch-axis"><span></span><div><em style="left:0">0%</em><em style="left:33%">33% pass</em><em style="left:100%">100%</em></div><span></span></div></div>`}
 // tooltip for chart marks
 (function(){let tip=null;const show=(el,x,y)=>{if(!tip){tip=document.createElement('div');tip.className='ch-tip';document.body.appendChild(tip)}tip.textContent=el.dataset.tip;tip.style.display='block';
  const r=tip.getBoundingClientRect();tip.style.left=Math.min(innerWidth-r.width-8,Math.max(8,x-r.width/2))+'px';tip.style.top=Math.max(8,y-r.height-12)+'px'};
@@ -2165,6 +2177,7 @@ document.addEventListener('click',e=>{const b=e.target.closest('[data-act]');if(
   case 'resf':{const [k,val]=v.split(':');ui.resF[k]=val;render(true);break}
   case 'resdel':{if(!confirmDel(v))break;DB.resources=(DB.resources||[]).filter(r=>r.id!==v);saveDB();render(true);toast('File deleted');break}
   case 'logout':page='login';if(ONLINE){onlineLogout();toast('You have logged out');break}me=null;role=null;render();toast('You have logged out');break;
+  case 'resa':ui.resA=v;render(true);break;
   case 'approve':setApproval(v,'approved');break;
   case 'reject':setApproval(v,'rejected');break;
   case 'day':ui.day=v;render(true);break;
@@ -2231,7 +2244,12 @@ function handleForm(f){const fd=Object.fromEntries(new FormData(f));const err=f.
    DB.inquiries.push({id:uid(),name:T(fd.name),father:T(fd.father),phone:T(fd.phone),email:T(fd.email),program:fd.program,msg:T(fd.msg),at:Date.now(),status:'New'});saveDB();f.reset();err.innerHTML='<span class="ok-msg">✅ Thank you! Your inquiry was sent. The college office will contact you soon.</span>';toast('Inquiry sent ✅');break}
   case 'notice':{if(T(fd.title).length<4)return toast('Please write a notice title');DB.notices.push({id:uid(),tag:fd.tag,title:T(fd.title),body:T(fd.body),at:Date.now(),by:U().name});saveDB();render();toast('Notice posted ✅');break}
   case 'addclass':if(!fd.t||!T(fd.s))return toast('Please enter the time and subject');DB.timetable[ui.day].push({id:uid(),t:fd.t,s:fd.s,r:T(fd.r)});saveDB();render(true);toast('Class added to '+ui.day);break;
-  case 'marks':{let n=0,bad=false;for(const [r,v] of Object.entries(fd)){if(v===''){delete S(r).results[ui.mkSub];continue}const m=+v;if(isNaN(m)||m<0||m>100){bad=true;continue}S(r).results[ui.mkSub]=m;n++}saveDB();render(true);toast(bad?'Some marks were not between 0 and 100 and were skipped':`Saved marks for ${n} student(s) ✅`);break}
+  case 'marks':{if(role==='teacher'){if(!U().subject)return toast('Your subject is not set. Please ask the admin.');ui.mkSub=U().subject}if(role!=='teacher'&&role!=='admin')return;
+   const as=((document.getElementById('mkass')||{}).value||ui.mkA||'').trim().replace(/\s+/g,' '),sub=ui.mkSub,tot=+fd.total;if(as.length<2)return toast('Please write the name of the test or exam.');ui.mkA=as;if(!(tot>0&&tot<=500))return toast('Please enter the total marks of this test (1 to 500).');
+   let n=0,bad=false;for(const [k,v] of Object.entries(fd)){if(!k.startsWith('m:'))continue;const r=k.slice(2);const t=S(r).tests;
+    if(v===''){if(t[as]){delete t[as][sub];if(!Object.keys(t[as]).length)delete t[as]}continue}
+    const m=+v;if(isNaN(m)||m<0||m>tot){bad=true;continue}(t[as]=t[as]||{})[sub]={m,t:tot};n++}
+   saveDB();render(true);toast(bad?`Some marks were not between 0 and ${tot} and were skipped`:`Saved ${as} marks for ${n} student(s) ✅`);break}
   case 'newassign':{if(T(fd.title).length<4)return fail('Please write the task.');if(!fd.due)return fail('Please choose a due date.');DB.assignments.push({id:uid(),cls:fd.cls,sub:fd.sub,title:T(fd.title),due:fd.due,by:me,subs:{}});saveDB();render();toast('Assignment posted ✅');break}
   case 'addstudent':{const roll=T(fd.roll).toUpperCase();if(T(fd.name).length<3)return fail('Please enter the full name.');if(!/^[A-Z0-9-]{3,20}$/.test(roll))return fail('Roll number can use letters, numbers and dashes only.');if(DB.users[roll])return fail('This roll number already exists.');if((fd.pw||'').length<6)return fail('Password must be at least 6 characters.');DB.users[roll]={pw:fd.pw,name:T(fd.name),role:'student',cls:fd.cls};S(roll);saveDB();render(true);toast('Student added ✅');break}
   case 'addteacher':{const id=T(fd.id).toUpperCase();if(T(fd.name).length<3)return fail('Please enter the full name.');if(!/^[A-Z0-9-]{2,20}$/.test(id))return fail('ID can use letters, numbers and dashes only.');if(DB.users[id])return fail('This ID already exists.');if((fd.pw||'').length<6)return fail('Password must be at least 6 characters.');DB.users[id]={pw:fd.pw,name:T(fd.name),role:'teacher',subject:fd.subject,cls:fd.cls};saveDB();render(true);toast('Teacher added ✅');break}
@@ -2246,7 +2264,9 @@ document.addEventListener('keydown',e=>{if(e.key!=='Enter'||e.target.tagName!=='
 
 document.addEventListener('input',e=>{const t=e.target;
  if(t.id==='bookq'||t.id==='stuq'){if(t.id==='bookq')ui.bookQ=t.value;else ui.stuQ=t.value;const pos=t.selectionStart,id=t.id;render(true);const i=document.getElementById(id);i.focus();try{i.setSelectionRange(pos,pos)}catch(_){}}
- if(t.dataset.mk!==undefined){const v=t.value===''?null:+t.value;const g=document.querySelector(`[data-gr="${CSS.escape(t.name)}"]`);if(g)g.textContent=v==null||isNaN(v)?'—':(v<0||v>100?'0–100!':grade(v))}
+ const mkGrade=inp=>{const tot=+(document.getElementById('mktotal')||{}).value||100;const v=inp.value===''?null:+inp.value;const g=document.querySelector(`[data-gr="${CSS.escape(inp.dataset.mk)}"]`);if(g)g.textContent=v==null||isNaN(v)?'—':(v<0||v>tot?'0–'+tot+'!':grade(v/tot*100))};
+ if(t.dataset.mk!==undefined)mkGrade(t);
+ if(t.id==='mktotal'){document.querySelectorAll('.mk-of').forEach(x=>x.textContent=t.value||'?');document.querySelectorAll('[data-mk]').forEach(mkGrade)}
 });
 document.addEventListener('change',e=>{
  if(e.target.id==='resfile'){ui.resFile=e.target.files[0]||null;return}
@@ -2255,6 +2275,7 @@ document.addEventListener('change',e=>{
  if(t.id==='attdate'){ui.attDate=t.value||iso();render(true)}
  if(t.id==='mkcls'){ui.mkCls=t.value;render(true)}
  if(t.id==='mksub'){ui.mkSub=t.value;render(true)}
+ if(t.id==='mkass'){ui.mkA=t.value.trim().replace(/\s+/g,' ');render(true)}
  if(t.id==='stucls'){ui.stuCls=t.value;render(true)}
  if(t.dataset.upload){const file=t.files[0];if(!file)return;const a=DB.assignments.find(x=>x.id===t.dataset.upload);a.subs[me]={file:file.name,at:Date.now()};saveDB();ui.asF='submitted';render();toast('✅ "'+file.name+'" submitted!')}
  if(t.id==='photo'){const file=t.files[0];if(!file)return;if(file.size>5e6)return toast('Please choose a photo under 5 MB');const rd=new FileReader();rd.onload=()=>{const img=new Image();img.onload=()=>{const c=document.createElement('canvas');const W=240,H=300;c.width=W;c.height=H;const k=Math.max(W/img.width,H/img.height);const w=img.width*k,h=img.height*k;c.getContext('2d').drawImage(img,(W-w)/2,(H-h)/2,w,h);P(me).photo=c.toDataURL('image/jpeg',.8);saveDB();render(true);toast('Photo updated')};img.src=rd.result};rd.readAsDataURL(file)}
